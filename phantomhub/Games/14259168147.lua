@@ -16,203 +16,260 @@ pcall(function()
     })
 end)
 
--- 🔽 PUT THAT GAME'S ACTUAL SCRIPT BELOW 🔽
+-- 🔽 PUT THAT GAME'S ACTUAL SCRIPT 
 
--- Basketball Legends - Phantom Hub Edition
+-- Phantom Hub | Basketball Legends
+-- Features: Auto Shoot, Speed Boost, Auto Guard, Rebound/Steal, Magnet, Follow, Anim Spoof
+-- Clean rewrite, Phantom-native
+
+repeat task.wait() until game:IsLoaded()
+
+--// Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local player = Players.LocalPlayer
-local Char = player.Character or player.CharacterAdded:Wait()
-local Hum = Char:WaitForChild("Humanoid")
-local Hrp = Char:WaitForChild("HumanoidRootPart")
+local char = player.Character or player.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
+local hum = char:WaitForChild("Humanoid")
 
--- Game Services
-local shootingElement = player.PlayerGui:WaitForChild("Visual"):WaitForChild("Shooting")
-local Shoot = ReplicatedStorage.Packages.Knit.Services.ControlService.RE.Shoot
+--// Phantom GUI reference
+local Phantom = getgenv().PhantomHub
+if not Phantom then
+    warn("Phantom Hub GUI not found")
+    return
+end
 
--- Toggles
-local autoShootEnabled = false
-local autoGuardEnabled = false
-local speedBoostEnabled = false
-local holdingG = false
+--// Tabs
+local Tabs = Phantom.Tabs
+local Main = Tabs.Main
+local PlayerTab = Tabs.Player
 
--- Settings
-local desiredSpeed = 30
-local guardDistance = 10
-local predictionTime = 0.3
-local shootPower = 0.8
+---------------------------------------------------
+-- AUTO SHOOT
+---------------------------------------------------
 
-local lastPositions = {}
-local autoGuardConnection = nil
-local speedBoostConnection = nil
-local visibleConn = nil
+local shootPower = 0.9
+local autoShoot = false
 
--- 🔫 Auto Shoot
-local function AutoShoot(value)
-    autoShootEnabled = value
-    if value then
-        if not visibleConn then
-            visibleConn = shootingElement:GetPropertyChangedSignal("Visible"):Connect(function()
-                if autoShootEnabled and shootingElement.Visible then
-                    task.wait(0.25)
-                    Shoot:FireServer(shootPower)
-                end
-            end)
-        end
-    else
-        if visibleConn then
-            visibleConn:Disconnect()
-            visibleConn = nil
-        end
+local ShootRemote =
+    ReplicatedStorage.Packages.Knit.Services.ControlService.RE.Shoot
+
+local VisualGui = player.PlayerGui:WaitForChild("Visual")
+local ShootingUI = VisualGui:WaitForChild("Shooting")
+
+Main:AddToggle("AutoShoot", {
+    Text = "Auto Shoot",
+    Default = false,
+    Callback = function(v)
+        autoShoot = v
     end
-end
+})
 
-local function SetShootPower(value)
-    shootPower = value / 100
-end
+Main:AddSlider("ShootPower", {
+    Text = "Shot Timing",
+    Min = 70,
+    Max = 100,
+    Default = 90,
+    Callback = function(v)
+        shootPower = v / 100
+    end
+})
 
--- 🏃 Speed Boost
-local function startCFrameSpeed(speed)
-    local conn
-    conn = RunService.RenderStepped:Connect(function(deltaTime)
-        local char = player.Character
-        if not char then return end
-        local root = char:FindFirstChild("HumanoidRootPart")
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if not root or not humanoid then return end
+ShootingUI:GetPropertyChangedSignal("Visible"):Connect(function()
+    if autoShoot and ShootingUI.Visible then
+        task.wait(0.25)
+        ShootRemote:FireServer(shootPower)
+    end
+end)
 
-        local moveVec = humanoid.MoveDirection
-        if moveVec.Magnitude > 0 then
-            local speedDelta = math.max(speed - humanoid.WalkSpeed, 0)
-            root.CFrame = root.CFrame + (moveVec.Unit * speedDelta * deltaTime)
+---------------------------------------------------
+-- SPEED BOOST
+---------------------------------------------------
+
+local speedEnabled = false
+local speedAmount = 22
+
+local speedConn
+local function enableSpeed()
+    speedConn = RunService.RenderStepped:Connect(function(dt)
+        if hum.MoveDirection.Magnitude > 0 then
+            hrp.CFrame += hum.MoveDirection * (speedAmount - hum.WalkSpeed) * dt
         end
     end)
-    return function() if conn then conn:Disconnect() end end
 end
 
-local function SpeedBoost(value)
-    speedBoostEnabled = value
-    if value then
-        if speedBoostConnection then speedBoostConnection() end
-        speedBoostConnection = startCFrameSpeed(desiredSpeed)
-    else
-        if speedBoostConnection then speedBoostConnection() end
-        speedBoostConnection = nil
+PlayerTab:AddToggle("SpeedBoost", {
+    Text = "Speed Boost",
+    Default = false,
+    Callback = function(v)
+        speedEnabled = v
+        if v then
+            enableSpeed()
+        elseif speedConn then
+            speedConn:Disconnect()
+        end
+    end
+})
+
+PlayerTab:AddSlider("SpeedAmount", {
+    Text = "Speed Amount",
+    Min = 16,
+    Max = 26,
+    Default = 22,
+    Callback = function(v)
+        speedAmount = v
+    end
+})
+
+---------------------------------------------------
+-- AUTO GUARD (G)
+---------------------------------------------------
+
+local autoGuard = false
+local guardDist = 10
+local guardConn
+
+local function findBallCarrier()
+    for _, m in pairs(workspace:GetChildren()) do
+        if m:IsA("Model") and m ~= char and m:FindFirstChild("Basketball") then
+            return m:FindFirstChild("HumanoidRootPart")
+        end
+    end
+end
+
+local function guardLoop()
+    local target = findBallCarrier()
+    if target then
+        local pos = target.Position + (target.CFrame.LookVector * -4)
+        hum:MoveTo(pos)
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
     end
 end
 
--- 🛡 Auto Guard
-local function getPlayerFromModel(model)
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr.Character == model then return plr end
+Main:AddToggle("AutoGuard", {
+    Text = "Auto Guard (Hold G)",
+    Default = false,
+    Callback = function(v)
+        autoGuard = v
     end
-    return nil
-end
+})
 
-local function isOnDifferentTeam(otherModel)
-    local otherPlayer = getPlayerFromModel(otherModel)
-    if not otherPlayer then return false end
-    if not player.Team or not otherPlayer.Team then
-        return otherPlayer ~= player
+Main:AddSlider("GuardDistance", {
+    Text = "Guard Distance",
+    Min = 5,
+    Max = 20,
+    Default = 10,
+    Callback = function(v)
+        guardDist = v
     end
-    return player.Team ~= otherPlayer.Team
-end
+})
 
-local function findPlayerWithBall()
-    local looseBall = workspace:FindFirstChild("Basketball")
-    if looseBall and looseBall:IsA("BasePart") then
-        local closestPlayer = nil
-        local closestDistance = math.huge
-        
-        for _, model in pairs(workspace:GetChildren()) do
-            if model:IsA("Model") and model:FindFirstChild("HumanoidRootPart") and model ~= player.Character then
-                if isOnDifferentTeam(model) then
-                    local rootPart = model:FindFirstChild("HumanoidRootPart")
-                    local distance = (looseBall.Position - rootPart.Position).Magnitude
-                    if distance < closestDistance and distance < 15 then
-                        closestDistance = distance
-                        closestPlayer = model
-                    end
-                end
-            end
-        end
-        
-        if closestPlayer then
-            return closestPlayer, closestPlayer:FindFirstChild("HumanoidRootPart")
-        end
-    end
-    return nil, nil
-end
-
-local function autoGuard()
-    if not autoGuardEnabled then return end
-    local character = player.Character
-    if not character then return end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local rootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not rootPart then return end
-
-    local ballCarrier, ballCarrierRoot = findPlayerWithBall()
-    if ballCarrier and ballCarrierRoot then
-        local distance = (rootPart.Position - ballCarrierRoot.Position).Magnitude
-        local currentPos = ballCarrierRoot.Position
-        local velocity = Vector3.new(0,0,0)
-        if lastPositions[ballCarrier] then
-            velocity = (currentPos - lastPositions[ballCarrier]) / task.wait()
-        end
-        lastPositions[ballCarrier] = currentPos
-        local predictedPos = currentPos + (velocity * predictionTime * 60)
-        local defensiveOffset = (predictedPos - rootPart.Position).Unit * 5
-        local defensivePosition = predictedPos - defensiveOffset
-        defensivePosition = Vector3.new(defensivePosition.X, rootPart.Position.Y, defensivePosition.Z)
-        if distance <= guardDistance then
-            humanoid:MoveTo(defensivePosition)
-            if distance <= 10 then
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-            else
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-            end
-        else
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-        end
-    else
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-    end
-end
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if input.KeyCode == Enum.KeyCode.G and not gameProcessed then
-        holdingG = true
-        autoGuardEnabled = true
-        lastPositions = {}
-        if not autoGuardConnection then
-            autoGuardConnection = RunService.Heartbeat:Connect(autoGuard)
-        end
+UserInputService.InputBegan:Connect(function(i, g)
+    if g then return end
+    if i.KeyCode == Enum.KeyCode.G and autoGuard then
+        guardConn = RunService.Heartbeat:Connect(guardLoop)
     end
 end)
 
-UserInputService.InputEnded:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.G then
-        holdingG = false
-        autoGuardEnabled = false
-        if autoGuardConnection then
-            autoGuardConnection:Disconnect()
-            autoGuardConnection = nil
-        end
-        lastPositions = {}
+UserInputService.InputEnded:Connect(function(i)
+    if i.KeyCode == Enum.KeyCode.G and guardConn then
+        guardConn:Disconnect()
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
     end
 end)
 
--- Return functions for GUI toggles
-return {
-    AutoShoot = AutoShoot,
-    SpeedBoost = SpeedBoost,
-    AutoGuard = function(val) autoGuardEnabled = val end,
-    SetShootPower = SetShootPower
-}
+---------------------------------------------------
+-- BALL MAGNET
+---------------------------------------------------
+
+local magnet = false
+local magDist = 35
+
+Main:AddToggle("BallMagnet", {
+    Text = "Ball Magnet",
+    Default = false,
+    Callback = function(v)
+        magnet = v
+    end
+})
+
+Main:AddSlider("MagnetDistance", {
+    Text = "Magnet Distance",
+    Min = 10,
+    Max = 80,
+    Default = 35,
+    Callback = function(v)
+        magDist = v
+    end
+})
+
+RunService.Heartbeat:Connect(function()
+    if not magnet then return end
+    for _, b in pairs(workspace:GetDescendants()) do
+        if b.Name == "Basketball" and b:IsA("BasePart") then
+            if (b.Position - hrp.Position).Magnitude <= magDist then
+                firetouchinterest(hrp, b, 0)
+                firetouchinterest(hrp, b, 1)
+            end
+        end
+    end
+end)
+
+---------------------------------------------------
+-- FOLLOW BALL CARRIER
+---------------------------------------------------
+
+local follow = false
+local followOffset = -8
+
+Main:AddToggle("FollowBall", {
+    Text = "Follow Ball Carrier",
+    Default = false,
+    Callback = function(v)
+        follow = v
+    end
+})
+
+RunService.Heartbeat:Connect(function()
+    if not follow then return end
+    local target = findBallCarrier()
+    if target then
+        hrp.CFrame = target.CFrame * CFrame.new(0, 0, followOffset)
+    end
+end)
+
+---------------------------------------------------
+-- AUTO REBOUND / STEAL
+---------------------------------------------------
+
+local rebound = false
+
+Main:AddToggle("AutoRebound", {
+    Text = "Auto Rebound & Steal",
+    Default = false,
+    Callback = function(v)
+        rebound = v
+    end
+})
+
+RunService.Heartbeat:Connect(function()
+    if not rebound then return end
+    for _, b in pairs(workspace:GetChildren()) do
+        if b.Name == "Basketball" and b:IsA("BasePart") then
+            hrp.CFrame = b.CFrame
+        end
+    end
+end)
+
+---------------------------------------------------
+-- CLEANUP
+---------------------------------------------------
+
+Phantom.OnUnload(function()
+    if speedConn then speedConn:Disconnect() end
+    if guardConn then guardConn:Disconnect() end
+end)

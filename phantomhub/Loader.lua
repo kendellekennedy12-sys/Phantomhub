@@ -1,107 +1,135 @@
--- Phantom Hub Loader (Universal + Basketball Legends)
+-- Phantom Hub Loader
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 
--- 1️⃣ Load Phantom Hub GUI
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/x2zu/OPEN-SOURCE-UI-ROBLOX/refs/heads/main/X2ZU%20UI%20ROBLOX%20OPEN%20SOURCE/DummyUi-leak-by-x2zu/fetching-main/Tools/Framework.luau"))()
+local player = Players.LocalPlayer
 
-local Window = Library:Window({
-    Title = "Phantom Hub [Universal]",
-    Desc = "tect on top",
-    Icon = 105059922903197,
-    Theme = "Dark",
-    Config = { Keybind = Enum.KeyCode.LeftControl, Size = UDim2.new(0,500,0,400) },
-    CloseUIButton = { Enabled = true, Text = "PH" }
+-- ====================
+-- Load Phantom Hub GUI
+-- ====================
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/yourusername/PhantomHub/main/GUI/Library.lua"))()
+local Window = Library:CreateWindow({
+    Title = "Phantom Hub",
+    Footer = "by PhantomHub Team",
+    ShowCustomCursor = false,
 })
 
--- Tabs
-local MainTab = Window:Tab({Title="Main", Icon="star"})
-local PlayerTab = Window:Tab({Title="Player", Icon="user"})
-local MiscTab = Window:Tab({Title="Misc", Icon="settings"})
-local UISettingsTab = Window:Tab({Title="UI Settings", Icon="monitor"})
+local Tabs = {
+    Main = Window:AddTab("Main", "house"),
+    Player = Window:AddTab("Player", "user")
+}
 
--- 2️⃣ Load the game-specific script (Basketball Legends)
-local placeId = tostring(game.PlaceId)
-local gameScript = nil
-
-pcall(function()
-    gameScript = loadstring(game:HttpGet("https://raw.githubusercontent.com/kendellekennedy12-sys/PhantomHub/main/Games/"..placeId..".lua"))()
+-- ====================
+-- Load Game Script
+-- ====================
+local GameId = tostring(game.PlaceId)
+local success, gameModule = pcall(function()
+    return require(game:GetService("ReplicatedStorage"):WaitForChild("PhantomHub_Games"):WaitForChild(GameId))
 end)
 
-if not gameScript then
-    print("[Phantom Hub] No game script found for this place.")
-else
-    print("[Phantom Hub] Loaded game script for place ID "..placeId)
+if not success then
+    warn("Failed to load game module: " .. tostring(gameModule))
+    return
 end
 
--- 3️⃣ Add GUI toggles and hook to script functions
--- Main tab example
-MainTab:Section({Title="Basketball Legends Features"})
+-- ====================
+-- Main Toggles
+-- ====================
+local MainGroup = Tabs.Main:AddLeftGroupbox("Game Features", "gamepad")
 
-local autoShootToggle = MainTab:Toggle({
-    Title="Auto Shoot",
-    Desc="Automatically shoots with perfect timing",
-    Value=false,
-    Callback=function(val)
-        if gameScript then gameScript.AutoShoot(val) end
+-- Auto Shoot
+local autoShootToggle = MainGroup:AddToggle("AutoShoot", {
+    Text = "Auto Shoot",
+    Default = false,
+    Tooltip = "Automatically shoots the ball with perfect timing",
+    Callback = function(value)
+        gameModule.AutoShoot(value)
     end
 })
 
-local ballMagnetToggle = MainTab:Toggle({
-    Title="Ball Magnet",
-    Desc="Automatically moves you to the ball",
-    Value=false,
-    Callback=function(val)
-        if gameScript then gameScript.BallMagnet(val) end
+MainGroup:AddSlider("ShootTiming", {
+    Text = "Shot Timing",
+    Default = 80,
+    Min = 50,
+    Max = 100,
+    Rounding = 0,
+    Tooltip = "Adjust shooting timing (80 = Mediocre, 100 = Perfect)",
+    Callback = function(value)
+        gameModule.SetShootPower(value)
     end
 })
 
-local speedBoostToggle = PlayerTab:Toggle({
-    Title="Speed Boost",
-    Desc="Enable CFrame speed boost",
-    Value=false,
-    Callback=function(val)
-        if gameScript then gameScript.SpeedBoost(val) end
+-- Speed Boost
+local PlayerGroup = Tabs.Player:AddLeftGroupbox("Movement", "zap")
+
+local speedToggle = PlayerGroup:AddToggle("SpeedBoost", {
+    Text = "Speed Boost",
+    Default = false,
+    Tooltip = "Enable or disable speed boost",
+    Callback = function(value)
+        gameModule.SpeedBoost(value)
     end
 })
 
-local postAimbotToggle = PlayerTab:Toggle({
-    Title="Post Aimbot",
-    Desc="Automatically face opponents when posting up",
-    Value=false,
-    Callback=function(val)
-        if gameScript then gameScript.PostAimbot(val) end
+PlayerGroup:AddSlider("SpeedAmount", {
+    Text = "Speed Amount",
+    Default = 16,
+    Min = 16,
+    Max = 30,
+    Rounding = 1,
+    Tooltip = "Adjust speed boost amount",
+    Callback = function(value)
+        gameModule.SpeedBoost(true) -- re-enable to apply new speed
     end
 })
 
-local stealReachToggle = PlayerTab:Toggle({
-    Title="Steal Reach",
-    Desc="Enable extended reach for stealing",
-    Value=false,
-    Callback=function(val)
-        if gameScript then gameScript.StealReach(val) end
+-- Auto Guard
+local guardToggle = PlayerGroup:AddToggle("AutoGuard", {
+    Text = "Auto Guard (Hold G)",
+    Default = false,
+    Tooltip = "Automatically guard opponents",
+    Callback = function(value)
+        gameModule.AutoGuard(value)
     end
 })
 
--- Misc / teleport examples
-MiscTab:Section({Title="Miscellaneous"})
-local teleportButton = MiscTab:Button({
-    Title="Rejoin Server",
-    Desc="Rejoin current server",
-    Callback=function()
-        game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, game.Players.LocalPlayer)
+PlayerGroup:AddSlider("GuardDistance", {
+    Text = "Guard Distance",
+    Default = 10,
+    Min = 5,
+    Max = 20,
+    Rounding = 0,
+    Tooltip = "Maximum distance to start guarding",
+    Callback = function(value)
+        -- slider updates automatically inside the game script if needed
     end
 })
 
--- 4️⃣ Anti-AFK
-local Players = game:GetService("Players")
-Players.LocalPlayer.Idled:Connect(function()
-    local vu = game:GetService("VirtualUser")
-    vu:Button2Down(Vector2.new(0,0),workspace.CurrentCamera.CFrame)
-    vu:Button2Up(Vector2.new(0,0),workspace.CurrentCamera.CFrame)
+PlayerGroup:AddSlider("PredictionTime", {
+    Text = "Prediction Time",
+    Default = 0.3,
+    Min = 0.1,
+    Max = 0.8,
+    Rounding = 2,
+    Tooltip = "Predict opponent movement (seconds)",
+    Callback = function(value)
+        -- slider updates automatically inside the game script if needed
+    end
+})
+
+-- ====================
+-- Keybinds
+-- ====================
+Library:BindKey("AutoGuardKey", Enum.KeyCode.G, function()
+    guardToggle:Set(true)
+end, function()
+    guardToggle:Set(false)
 end)
 
--- 5️⃣ Notification
-Window:Notify({
-    Title="Phantom Hub",
-    Desc="Loaded successfully for place ID "..placeId,
-    Time=4
-})
+Library:OnUnload(function()
+    -- Reset everything on unload
+    gameModule.AutoShoot(false)
+    gameModule.SpeedBoost(false)
+    gameModule.AutoGuard(false)
+end)
